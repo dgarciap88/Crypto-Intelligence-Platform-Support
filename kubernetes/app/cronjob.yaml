@@ -1,0 +1,106 @@
+# CronJob for running the ingestion pipeline periodically
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: crypto-intel-pipeline
+  namespace: crypto-intel
+  labels:
+    app: crypto-intel-app
+    component: pipeline
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: crypto-intel-app
+            component: pipeline
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: pipeline
+            image: crypto-intel-app:latest
+            imagePullPolicy: IfNotPresent
+            command:
+            - python
+            - run_pipeline.py
+            - --days
+            - "7"
+            - --all-projects
+            env:
+            # Same environment variables as the main app
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: OPENAI_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GITHUB_TOKEN
+                  optional: true
+            - name: APP_LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: APP_LOG_LEVEL
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "500m"
+              limits:
+                memory: "2Gi"
+                cpu: "2000m"
+          
+          # Init container to wait for PostgreSQL
+          initContainers:
+          - name: wait-for-postgres
+            image: postgres:14-alpine
+            command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U ${DB_USER}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+            env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_USER

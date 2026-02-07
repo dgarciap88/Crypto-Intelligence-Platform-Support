@@ -1,0 +1,141 @@
+# Production Docker Compose for Crypto Intelligence Platform
+# This orchestrates the complete production stack
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database (Production-optimized)
+  postgres:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    container_name: cip-postgres-prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_intel}
+      POSTGRES_USER: ${POSTGRES_USER:-cip_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_logs:/var/log/postgresql
+      - ./backups:/backups
+      - ../../Crypto-Intelligence-Platform/db/create_tables.sql:/docker-entrypoint-initdb.d/02_schema.sql:ro
+    networks:
+      - cip-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cip_user} -d ${POSTGRES_DB:-crypto_intel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # CIP Application (Production)
+  app:
+    build:
+      context: ../../Crypto-Intelligence-Platform
+      dockerfile: Dockerfile
+    container_name: cip-app-prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cip_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crypto_intel}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE: ${OPENAI_API_BASE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../Crypto-Intelligence-Platform/project.yaml:/app/project.yaml:ro
+      - app_logs:/app/logs
+    networks:
+      - cip-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import psycopg2; import os; psycopg2.connect(os.getenv('DATABASE_URL')).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          memory: 256M
+    # Default: run pipeline once and exit
+    # For continuous operation, change to: command: tail -f /dev/null
+    command: python run_pipeline.py --project-id arbitrum --days 7
+
+  # PgAdmin for database administration (Production)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: cip-pgadmin-prod
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@cip.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'True'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'True'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cip-network
+    restart: unless-stopped
+    profiles:
+      - admin
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # PostgreSQL Exporter for Prometheus monitoring
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: cip-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-cip_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crypto_intel}?sslmode=disable"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: 'true'
+    ports:
+      - "${EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cip-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+
+volumes:
+  postgres_data:
+    driver: local
+  postgres_logs:
+    driver: local
+  pgadmin_data:
+    driver: local
+  app_logs:
+    driver: local
+
+networks:
+  cip-network:
+    driver: bridge

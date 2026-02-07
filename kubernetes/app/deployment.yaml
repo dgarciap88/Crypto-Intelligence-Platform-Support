@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crypto-intel-app
+  namespace: crypto-intel
+  labels:
+    app: crypto-intel-app
+    component: application
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-intel-app
+      component: application
+  template:
+    metadata:
+      labels:
+        app: crypto-intel-app
+        component: application
+    spec:
+      containers:
+      - name: app
+        # NOTE: Replace with your actual image registry
+        # image: your-registry.azurecr.io/crypto-intel-app:latest
+        image: crypto-intel-app:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        # Database connection from ConfigMap
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: DB_NAME
+        
+        # Database credentials from Secret
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: DB_PASSWORD
+        
+        # Construct DATABASE_URL
+        - name: DATABASE_URL
+          value: "postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+        
+        # OpenAI API Key from Secret
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: OPENAI_API_KEY
+        
+        # GitHub token (optional)
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: GITHUB_TOKEN
+              optional: true
+        
+        # Application settings from ConfigMap
+        - name: APP_LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_LOG_LEVEL
+        - name: APP_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_ENV
+        - name: PIPELINE_BATCH_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: PIPELINE_BATCH_SIZE
+        - name: INSIGHT_COOLDOWN_HOURS
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: INSIGHT_COOLDOWN_HOURS
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        # Health checks
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - |
+              import psycopg2
+              import os
+              conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+              conn.close()
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - |
+              import psycopg2
+              import os
+              conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+              cur = conn.cursor()
+              cur.execute('SELECT 1')
+              cur.close()
+              conn.close()
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Init container to wait for PostgreSQL
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:14-alpine
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres -p 5432 -U ${DB_USER}; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: DB_USER
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
