@@ -87,6 +87,17 @@ cp .env.example .env
 | `GITHUB_TOKEN` | GitHub Personal Access Token | [github.com/settings/tokens](https://github.com/settings/tokens) |
 | `OPENAI_API_KEY` | OpenAI API Key | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 
+**Optional - Update Schedule Configuration:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITHUB_UPDATE_INTERVAL_MINUTES` | 360 (6h) | Minutes between GitHub data updates |
+| `TWITTER_UPDATE_INTERVAL_MINUTES` | 30 | Minutes between Twitter updates (future) |
+| `ONCHAIN_UPDATE_INTERVAL_MINUTES` | 15 | Minutes between on-chain updates (future) |
+| `CHECK_INTERVAL_SECONDS` | 60 | Seconds between schedule checks |
+
+> 💡 El sistema funciona en **modo continuo** con actualizaciones automáticas. GitHub se actualiza cada 6 horas por defecto para respetar rate limits.
+
 ### Opción 1: **FULL STACK** - Platform + API + Web (RECOMENDADO)
 
 ```bash

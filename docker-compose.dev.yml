@@ -56,6 +56,12 @@ services:
       
       # Pipeline Config - Processes all 10 projects from projects.yaml
       PROJECTS_FILE: projects.yaml
+      
+      # Update Schedule (continuous mode)
+      GITHUB_UPDATE_INTERVAL_MINUTES: ${GITHUB_UPDATE_INTERVAL_MINUTES:-360}
+      TWITTER_UPDATE_INTERVAL_MINUTES: ${TWITTER_UPDATE_INTERVAL_MINUTES:-30}
+      ONCHAIN_UPDATE_INTERVAL_MINUTES: ${ONCHAIN_UPDATE_INTERVAL_MINUTES:-15}
+      CHECK_INTERVAL_SECONDS: ${CHECK_INTERVAL_SECONDS:-60}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +92,11 @@ services:
       
       # Logging
       LOG_LEVEL: info
+      
+      # Update Schedule (for status endpoint)
+      GITHUB_UPDATE_INTERVAL_MINUTES: ${GITHUB_UPDATE_INTERVAL_MINUTES:-360}
+      TWITTER_UPDATE_INTERVAL_MINUTES: ${TWITTER_UPDATE_INTERVAL_MINUTES:-30}
+      ONCHAIN_UPDATE_INTERVAL_MINUTES: ${ONCHAIN_UPDATE_INTERVAL_MINUTES:-15}
     ports:
       - "8000:8000"
     depends_on:
